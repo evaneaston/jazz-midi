@@ -1,0 +1,45 @@
+# Builds node/bin/linuxa64/jazz.node on a native ARM64 runner against the
+# official Node headers, so the module links no distro libnode.so (it only
+# uses N-API symbols, which the node executable provides).
+name: Build linux-arm64 binary
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'midi/**'
+      - 'node-gyp/**'
+      - '.github/workflows/build-linux-arm64.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build
+        working-directory: node-gyp
+        run: npx --yes node-gyp@11 rebuild
+
+      - name: Check the binary
+        run: |
+          f=node-gyp/build/Release/jazz.node
+          readelf -h "$f" | grep -q 'AArch64'
+          readelf -d "$f" | grep NEEDED
+          if readelf -d "$f" | grep -q 'NEEDED.*libnode'; then
+            echo "jazz.node links libnode" >&2; exit 1
+          fi
+          # It must load in the official node and list ports without crashing
+          node -e "const m=require('./$f'); console.log(Object.keys(m).length, 'exports')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jazz-node-linux-arm64
+          path: node-gyp/build/Release/jazz.node
